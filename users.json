@@ -1,0 +1,13 @@
+{
+    "main": {
+        "users": [
+            {
+                "age": 25,
+                "email": "ali@gmail.com",
+                "isActive": true,
+                "name": "Ali",
+                "userId": 1
+            }
+        ]
+    }
+}
