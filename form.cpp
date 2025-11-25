@@ -12,7 +12,7 @@ using namespace sql;
 using namespace httplib;
 using json = nlohmann::json;
 
-Connection* con = nullptr;
+Connection* con ;
 
 string generateToken(int length = 32) {
     static const char chars[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
@@ -68,7 +68,7 @@ void signUp(const Request& req, Response& res) {
         delete pstmt;
 
         res.status = 201;
-        res.set_content("{\"message\":\"user registered successfully\"}", "application/json");
+        res.set_content("{message : user registered successfully}", "application/json");
 
     } catch(SQLException &e) {
         cout << "SQL Error: " << e.what() << endl;
