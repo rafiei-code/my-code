@@ -132,7 +132,7 @@ void refreshToken(const Request& req, Response& res) {
         }
 
         try{
-            PreparedStatement *pstmt = con->prepareStatement("SELECT refresh_token,expires_at FROM refresh_tokens WHERE username = ? AND refresh_token = ?");
+            PreparedStatement *pstmt = con->prepareStatement("SELECT refresh_token FROM refresh_tokens WHERE username = ? AND refresh_token = ?");
             pstmt->setString(1,username);
             pstmt->setString(2,refreshToken);
             ResultSet* rSet = pstmt->executeQuery();
@@ -231,10 +231,9 @@ void login(const Request& req, Response& res) {
             delete del;
             string accessToken = generateAccessToken(username,role);
             string refreshToken = generateRefreshToken(username);
-            PreparedStatement* pstmt = con->prepareStatement("INSERT INTO refresh_tokens(username, refresh_token, expires_at) VALUES (?, ?, ?)");
+            PreparedStatement* pstmt = con->prepareStatement("INSERT INTO refresh_tokens(username, refresh_token) VALUES (?, ?)");
             pstmt->setString(1, username);
             pstmt->setString(2, refreshToken);
-            pstmt->setString(3, "1 day");
             pstmt->executeUpdate();
             delete pstmt;
             json response = { {"success", true}, {"role", role}, {"message", "Login successful"}, {"access_token", accessToken},{"refresh_token",refreshToken}};
@@ -299,7 +298,7 @@ void deleteUser(const Request& req, Response& res)
     if (path.length() <= 7)
     {
         res.status = 400;
-        res.set_content(R"({"error":"username not valid"})","application/json");
+        res.set_content("{error : username not valid }","application/json");
         return;
     }
 
@@ -318,7 +317,7 @@ void deleteUser(const Request& req, Response& res)
     if (adminRole != "admin")
     {
         res.status = 403;
-        res.set_content(R"({"error":"you dont have access"})","application/json");
+        res.set_content("{error : you dont have access}","application/json");
         return;
     }
 
@@ -327,7 +326,7 @@ void deleteUser(const Request& req, Response& res)
     if (user.empty())
     {
         res.status = 404;
-        res.set_content(R"({"error":"user not found"})","application/json");
+        res.set_content("{ error : user not found}","application/json");
         return;
     }
 
@@ -400,7 +399,7 @@ void changeUserRole(const Request& req, Response& res)
         update->executeUpdate();
         delete update;
         res.status = 200;
-        res.set_content("{massage : user updated was successfuly}","application/json");
+        res.set_content("{message : user updated was successfuly}","application/json");
     }catch(SQLException& e){
         cout << "DB error : " << e.what() << endl;
         res.status = 500;

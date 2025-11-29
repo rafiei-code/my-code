@@ -1,1 +1,2 @@
- g++ authService.cpp     bcrypt.c     crypt_blowfish/crypt_blowfish.c     crypt_blowfish/crypt_gensalt.c     crypt_blowfish/wrapper.cpp     -I ~/Documents/cpp/jwt-cpp/include     -lcrypto -lssl -Icrypt_blowfish     -lmysqlcppconn     -o main     -std=c++17 -pthread
+g++ authService.cpp bcrypt.c crypt_blowfish/crypt_blowfish.c crypt_blowfish/crypt_gensalt.c crypt_blowfish/wrapper.cpp -I ~/Documents/cpp/jwt-cpp/include  -lcrypto -lssl -Icrypt_blowfish
+  -lmysqlcppconn  -o main  -std=c++17 -pthread
