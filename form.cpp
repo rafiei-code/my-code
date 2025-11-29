@@ -18,7 +18,24 @@ Connection* con ;
 const string jwtSecretAccess = "MY_ACCESS_SECRET";
 const string jwtSecretRefresh = "MY_REFRESH_SECRET";
 
-
+tuple<string,string> decodejwt(const string& token)
+{
+    try {
+        auto decoded = jwt::decode(token);
+        jwt::verify()
+        .allow_algorithm(jwt::algorithm::hs256{jwtSecretAccess})
+        .with_issuer("auth_service")
+        .verify(decoded);           
+        
+        string username = decoded.get_payload_claim("username").as_string();
+        string role = decoded.get_payload_claim("role").as_string();
+        return {username,role};
+    } catch (exception& e) {
+        std::cout << "JWT error: " << e.what() << std::endl;
+        return { "", "" };
+    }
+    
+}
 tuple<string,string,string> findUser(Connection* con, const string& username) {
     try {
         PreparedStatement* pstmt = con->prepareStatement("SELECT username, password, role FROM users WHERE username = ?");
@@ -130,8 +147,7 @@ void refreshToken(const Request& req, Response& res) {
             delete pstmt;
             delete rSet;
             
-        }catch(SQLException &e)
-        {
+        }catch(SQLException &e){
             cout << "SQL ERROR : " << e.what() << endl;
             res.status = 500;
             res.set_content("{ error : DB error}", "application/json");
@@ -218,7 +234,7 @@ void login(const Request& req, Response& res) {
             PreparedStatement* pstmt = con->prepareStatement("INSERT INTO refresh_tokens(username, refresh_token, expires_at) VALUES (?, ?, ?)");
             pstmt->setString(1, username);
             pstmt->setString(2, refreshToken);
-            pstmt->setString(3, "2030-01-01 00:00:00");
+            pstmt->setString(3, "1 day");
             pstmt->executeUpdate();
             delete pstmt;
             json response = { {"success", true}, {"role", role}, {"message", "Login successful"}, {"access_token", accessToken},{"refresh_token",refreshToken}};
@@ -277,8 +293,123 @@ void allUsers(const Request& req, Response& res) {
     }
     
 }
+void deleteUser(const Request& req, Response& res)
+{
+    string path = req.path;
+    if (path.length() <= 7)
+    {
+        res.status = 400;
+        res.set_content(R"({"error":"username not valid"})","application/json");
+        return;
+    }
+
+    string username = path.substr(7);
+    string authHeader  = req.get_header_value("Authorization");
+    if (authHeader.empty() || authHeader.rfind("Bearer ", 0) != 0)
+    {
+        res.status = 403;
+        res.set_content("{error : missing or invalid Authorization header }","application/json");
+        return;
+    }
+
+    string token = authHeader.substr(7);
+    auto [adminUsername, adminRole] = decodejwt(token);
+
+    if (adminRole != "admin")
+    {
+        res.status = 403;
+        res.set_content(R"({"error":"you dont have access"})","application/json");
+        return;
+    }
+
+    auto [user, pass, role] = findUser(con, username);
+
+    if (user.empty())
+    {
+        res.status = 404;
+        res.set_content(R"({"error":"user not found"})","application/json");
+        return;
+    }
+
+    if (!verifyAccessToken(adminUsername, adminRole, token))
+    {
+        res.status = 403;
+        res.set_content("{error : you dont have access}","application/json");
+        return;
+    }
+
+    try {
+        PreparedStatement* del = con->prepareStatement("DELETE FROM users WHERE username = ?");
+        del->setString(1, username);
+        del->executeUpdate();
+        delete del;
+
+        res.status = 200;
+        res.set_content("{message : user deleted successfully}","application/json");
+    } catch (SQLException& e) {
+        cout << "SQL Error : " << e.what() << endl;
+        res.status = 500;
+        res.set_content("{ error : DB error}","application/json");
+    }
+}
+void changeUserRole(const Request& req, Response& res)
+{
+    json j = json::parse(req.body);
+    string newRole = j.value("new_role","");
+    string path = req.path;
+    string username = path.substr(7);
+    if (username.empty() || path.length() <= 7)
+    {
+        res.status = 400;
+        res.set_content("{error : username not valid}","application/json");
+        return;
+    }
+    string authHeader  = req.get_header_value("Authorization");
+    if (authHeader.empty() || authHeader.rfind("Bearer ", 0) != 0)
+    {
+        res.status = 403;
+        res.set_content("{error : missing or invalid Authorization header }","application/json");
+        return;
+    }
+    string token = authHeader.substr(7);
+
+    auto [adminUsername,adminRole] = decodejwt(token);
+    if (adminRole != "admin")
+    {
+        res.status = 403;
+        res.set_content("{error : you dont have access}","application/json");
+        return;
+    }
+    auto [user,pass,role] = findUser(con,username);
+    if (user.empty())
+    {
+        res.status = 404;
+        res.set_content("{error : user not found}","application/json");
+        return;
+    }
+    if (!verifyAccessToken(adminUsername,adminRole,token))
+    {
+        res.status = 403;
+        res.set_content("{error : you dont have access or token is not valid}","application/json");
+        return;
+    }
+    try{
+    PreparedStatement* update = con->prepareStatement("UPDATE users SET role = ? WHERE username = ?");
+        update->setString(1,newRole);
+        update->setString(2,username);
+        update->executeUpdate();
+        delete update;
+        res.status = 200;
+        res.set_content("{massage : user updated was successfuly}","application/json");
+    }catch(SQLException& e){
+        cout << "DB error : " << e.what() << endl;
+        res.status = 500;
+        res.set_content("{ error : DB error}","application/json");
+    }
+    
+    
+}
 int main() {
-    //hiiiii
     try {
         Driver* driver = get_driver_instance();
         con = driver->connect("tcp://127.0.0.1:3306", "testuser", "123456");
@@ -288,6 +419,8 @@ int main() {
         server.Post("/signup", signUp);
         server.Post("/login", login);
         server.Post("/refresh", refreshToken);
+        server.Delete(R"(/users/.*)", deleteUser);
+        server.Put(R"(/users/.*)", changeUserRole);
         server.Get("/users", allUsers);
 
         cout << "Server starting ..." << endl;
