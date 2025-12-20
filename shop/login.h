@@ -24,7 +24,7 @@ inline tuple <int,string> login(Connection* con) {
     cout << "Done" << endl;
     auto [u, pass] = findUser(con, username);
     if(u.empty() || pass.empty() || u != username || pass != password) {
-        cout << "Enter valid username or paassword !" << endl;
+        cout << "Enter valid  or paassword !" << endl;
         return make_tuple(-1, "");
     }
     PreparedStatement *pstmt = con->prepareStatement("SELECT id, name FROM users WHERE name = ?");

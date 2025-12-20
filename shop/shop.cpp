@@ -9,14 +9,15 @@
 #include "BCrypt.hpp"
 #include <iomanip>
 #include "login.h"
-#include <vector>
+#include <random>
+#include <string>
 using namespace sql;
 using namespace std;
 using namespace httplib;
 using json = nlohmann::json;
 
 Connection *con;
-int sumOfProducts = 0;
+
 void sumProduct(int &value)
 {
     value = 0;
@@ -69,7 +70,7 @@ void allProduct()
         cerr << "SQL Error (allProduct): " << e.what() << endl;
     }
 }
-void creatCard(const string& tableName,int id)
+void creatCart(const string& tableName,int id)
 {
     
     try {
@@ -104,13 +105,16 @@ void creatCard(const string& tableName,int id)
         stmt->execute(query);
         delete stmt;
         
+        PreparedStatement *hadCartt = con->prepareStatement("UPDATE users SET had_cart = true WHERE id = ?");
+        hadCartt->setInt(1,id);
+        hadCartt->executeUpdate();
         cout << "Table " << tableName << " created successfully." << endl;
         
     } catch (SQLException &e) {
         cerr << "error createCart: " << e.what() << endl;
     }
 }
-void addToCard(const string& tableName)
+void addToCart(const string& tableName)
 {
     int userId = 1;
     int productId,quantity;
@@ -193,10 +197,100 @@ void addToCard(const string& tableName)
         cerr << "error addToCart : " << e.what() << endl;
     }
 }
-void allCartItems(const string& tableName)
+void createDiscount(string& discount){
+    for (int i = 0; i < 5; i++)
+    {
+        random_device rd;
+        mt19937 gen(rd());
+        uniform_int_distribution<> choose(0,1);
+        if (choose(gen) == 0)
+        {
+            uniform_int_distribution<> num(0,9);
+            discount += to_string(num(gen));
+        }else{
+            uniform_int_distribution ch('A','Z');
+            discount += static_cast<char>(ch(gen));
+        }
+    }
+    
+    cout << "discount code : " << discount << endl;
+    PreparedStatement *insertDiscount = con->prepareStatement("INSERT INTO discount (code) VALUES(?)");
+    insertDiscount->setString(1,discount);
+    insertDiscount->executeUpdate();
+    
+}
+bool verifyDiscountCode(const string& code, const string& accountType){
+    try {
+        PreparedStatement* pstmt = con->prepareStatement(
+            "SELECT id, status, usage_pro, usage_normal FROM discount WHERE code = ?"
+        );
+        pstmt->setString(1, code);
+        ResultSet* res = pstmt->executeQuery();
+
+        if (!res->next()) {
+            delete res;
+            delete pstmt;
+            return false;
+        }
+
+        int discountId = res->getInt("id");
+        string status = res->getString("status");
+        int usagePro = res->getInt("usage_pro");
+        int usageNormal = res->getInt("usage_normal");
+
+        delete res;
+        delete pstmt;
+
+        if (status == "expired"){
+         return false;
+        }
+
+        int maxUsage = (accountType == "pro") ? 4 : 2;
+        int currentUsage = (accountType == "pro") ? usagePro : usageNormal;
+
+        if (currentUsage >= maxUsage) {
+            PreparedStatement* expire = con->prepareStatement(
+                "UPDATE discount SET status = 'expired' WHERE id = ?"
+            );
+            expire->setInt(1, discountId);
+            expire->executeUpdate();
+            delete expire;
+            return false;
+        }
+
+        
+
+        if (accountType == "pro") {
+            PreparedStatement* update = con->prepareStatement(
+                "UPDATE discount SET usage_pro = usage_pro + 1 WHERE id = ?"
+            );
+            update->setInt(1, discountId);
+            update->executeUpdate();
+            delete update;
+        } else {
+            PreparedStatement* update = con->prepareStatement(
+                "UPDATE discount SET usage_normal = usage_normal + 1 WHERE id = ?"
+            );
+            update->setInt(1, discountId);
+            update->executeUpdate();
+            delete update;
+        }
+
+        return true;
+
+    } catch (sql::SQLException &e) {
+        cerr << "SQL Error (applyDiscountCode): " << e.what() << endl;
+        return false;
+    }
+     
+}
+void allCartItems(const string& tableName,string discount ,int mainId , int& items)
 {
+    char choise = 'y';
+    string discountCode;
+    int finalPrice = 0,finalPriceWithDiscountCode = 0;
+    bool hadCode;
     deleteZeroProductQuantityFromCard(tableName);
-    char choice = 'y';
     cout << "Your all cart items:" << endl;
 
     string show = "SELECT id, quantity, color, price, final_price, product_name AS name FROM " + tableName;
@@ -207,8 +301,83 @@ void allCartItems(const string& tableName)
     cout << string(70, '-') << endl;
 
     while(rSet->next()) {
+        items += rSet->getInt("quantity");
         cout << left << setw(10) << rSet->getInt("id") << setw(20) << rSet->getString("name") << setw(15) << fixed << rSet->getInt("price") << setw(12) << rSet->getInt("quantity") << setw(10) << rSet->getString("color") << setw(10) << rSet->getInt("final_price") << endl;
+        finalPrice += rSet->getInt("final_price");
     }
+    
+    PreparedStatement* getAccount = con->prepareStatement("SELECT had_discountCode , accountType FROM users WHERE id = ?");
+    getAccount->setInt(1, mainId);
+    ResultSet* rS = getAccount->executeQuery();
+    if (rS->next())
+    {
+        hadCode = rS->getBoolean("had_discountCode");
+    }
+    
+    if (items > 3 && hadCode == 0)
+    {
+        createDiscount(discount);
+        PreparedStatement *haveCode =
+        con->prepareStatement(
+            "UPDATE users SET had_discountCode = 1 WHERE id = ?"
+        );
+        haveCode->setInt(1, mainId);
+        haveCode->executeUpdate();
+        delete haveCode;
+
+    }
+    if (items > 0 )
+    {
+        /* code */
+        while (true) {
+            cout << "do you have discount code (y,n)? ";
+            cin >> choise;
+            
+            
+            if (!cin.fail()) {
+                break;
+            }
+            cout << "enter valid option" << endl;
+            cin.clear();
+            cin.ignore(1000, '\n');
+        }
+        if (choise == 'y')  
+        {
+            finalPriceWithDiscountCode = finalPrice;
+            while (true) {  
+                cout << "Enter the discount code : ";
+                cin >> discountCode;
+    
+                if (!cin.fail()) break;
+    
+                cout << "enter valid option" << endl;
+                cin.clear();
+                cin.ignore(1000, '\n');
+            }
+    
+            string accountType;
+            // if (rS->next()) {
+                accountType = rS->getString("accountType");
+            // }
+            delete rS;
+            delete getAccount;
+            int FDiscount = finalPrice * 20 / 100;
+            finalPrice -= FDiscount;
+            if (verifyDiscountCode(discountCode, accountType)) {
+                int discount = finalPrice * 20 / 100;
+                finalPrice -= discount;
+                cout << "main final price : " << finalPrice + discount << endl;
+                cout << "final price with discount : " << finalPrice << endl;
+            } else {
+                cout << "Invalid or expired discount code!" << endl;
+            }
+    
+        }   
+    }
+    
+    
+
+    
 
     delete rSet;
     delete showAll;
@@ -273,10 +442,183 @@ void clearCard(const string& tableName)
     delete stmt;
     cout << endl << "Payment was OK" << endl;
 }
+void updateProfile(int id)
+{
+    int choise = 0;
+    string username,email,password,confirm;
+    string oldName,oldEmail,oldPassword;
+    cout << "1.edit username" << endl;
+    cout << "2.edit password " << endl;
+    cout << "3.edit email" << endl;
+    cout << "4.exit" << endl;
+    while (true) {
+        cout << "Choose an option: ";
+        cin >> choise;
+        
+        if (!cin.fail()) {
+            break;
+        }
+        cout << "enter valid option" << endl;
+        cin.clear();
+        cin.ignore(1000, '\n');
+    }
+
+    PreparedStatement *usersInfo = con->prepareStatement("SELECT * FROM users WHERE id = ?");
+    usersInfo->setInt(1,id);
+    ResultSet *rSet = usersInfo->executeQuery();
+
+    switch (choise)
+    {
+        case 1:{
+            bool flag = true;
+            while (flag)
+            {
+                while (true) {
+                    cout << "enter new name : ";
+                    cin >> username;
+                    
+                    auto [user,pass] = findUser(con,username);
+                    if (!user.empty())
+                    {
+                        cout << "this username used by other user " << endl;
+                    }
+                    
+                    if (!cin.fail()) {
+                        break;
+                    }
+                    cout << "enter valid username " << endl;
+                    cin.clear();
+                    cin.ignore(1000, '\n');
+                }
+                if (rSet->next())
+                {
+                    oldName = rSet->getString("name");
+                }
+                if (oldName == username)
+                {
+                    cout << "this username is your old username!" << endl;
+                    cout << "please enter a new username" << endl;
+                    // break;
+                }else{
+                    flag = false;
+                }
+            }
+            
+        
+        PreparedStatement * updateUsername = con->prepareStatement("UPDATE users SET name = ? WHERE id = ?");
+        updateUsername->setString(1,username);
+        updateUsername->setInt(2,id);
+        updateUsername->executeUpdate();
+        delete updateUsername;
+        cout << "edit was successfuly" << endl;
+        break;
+        }
+    case 2:{
+        bool flag = true;
+        while (flag)
+        {
+            while (true) {
+    
+                cout << "enter new password : ";
+                cin >> password;
+                cout << "enter confirm password : ";
+                cin >> confirm;
+                
+                if (!cin.fail()) {
+                    break;
+                }
+                cout << "enter password !" << endl;
+                cin.clear();
+                cin.ignore(1000, '\n');
+            }
+            if (password != confirm)
+            {
+                cout << "password was not match with confirm !" << endl;
+                // break;
+            }
+            if (rSet->next())
+            {
+                oldPassword = rSet->getString("password");
+            }
+            if (oldPassword == password)
+            {
+                cout << "this password is your old password!" << endl;
+                cout << "please enter a new password" << endl;
+                // break;
+            }else{
+                flag = false;
+            }
+        }
+        
+        PreparedStatement * updatePasswors = con->prepareStatement("UPDATE users SET password = ? WHERE id = ?");
+        updatePasswors->setString(1,password);
+        updatePasswors->setInt(2,id);
+        updatePasswors->executeUpdate();
+        delete updatePasswors;
+        cout << "edit was successfuly" << endl;
+        break;
+    }
+    case 3:{
+        bool flag = true;
+        while (flag)
+        {
+            /* code */
+            while (true) {
+                cout << "enter new email : ";
+                cin >> email;
+                
+                if (!cin.fail()) {
+                    break;
+                }
+                cout << "enter email !" << endl;
+                cin.clear();
+                cin.ignore(1000, '\n');
+            }
+    
+    
+            if (email.length() >= 10) {
+                string gmailEndPoint = email.substr(email.length() - 10);
+                if (gmailEndPoint != "@gmail.com") {
+                    cout << "email not valid !" << endl;
+                    // break;
+                }
+            }else{
+                cout << "email not valid !" << endl;
+                break;
+            }
+    
+            if (rSet->next())
+            {
+                oldEmail = rSet->getString("email");
+            }
+            if (oldEmail == email)
+            {
+                cout << "this email is your old email!" << endl;
+                cout << "please enter a new email" << endl;
+                // break;
+            }else{
+                flag = false;
+            }
+        }
+        
+        PreparedStatement * updateEmail = con->prepareStatement("UPDATE users SET email = ? WHERE id = ?");
+        updateEmail->setString(1,email);
+        updateEmail->setInt(2,id);
+        updateEmail->executeUpdate();
+        delete updateEmail;
+        cout << "edit was successfuly" << endl;
+        break;
+    }
+    default:
+        cout << "Enter valid option" << endl;
+        break;
+    }
+}
 int main() {
-    int choice = -1;
+    int sumOfProducts = 0, choice = -1;
     char condition = 'y';
-    int subChoice = 0;
+    int subChoice = 0 , items = 0;
+    string discount;
 
     Driver* driver = get_driver_instance();
     con = driver->connect("tcp://127.0.0.1:3306", "root", "MyNewPassword123");
@@ -284,13 +626,14 @@ int main() {
 
     auto [mainId, mainUsername] = login(con);
     if (mainId == -1 || mainUsername.empty()) return 1;
-
-    string tableName = mainUsername + "s_table";
+    string TBID = to_string(mainId);
+    string tableName = "user_" + TBID + "_table";
 
     do {
-        cout << "1. All Products and Add to cart" << endl;
+        cout << endl << "1. All Products and Add to cart" << endl;
         cout << "2. All items in your cart" << endl;
-        cout << "3.Exit" << endl;
+        cout << "3. Edit profile" << endl;
+        cout << "4. Exit" << endl;
         
         while (true) {
             cout << "Choose an option: ";
@@ -336,8 +679,9 @@ int main() {
                 }
                 switch (subChoice) {
                     case 1:
-                        creatCard(tableName, mainId);
-                        addToCard(tableName);
+
+                        creatCart(tableName, mainId);
+                        addToCart(tableName);
                         break;
                     case 2:
                         condition = 'y';
@@ -349,7 +693,14 @@ int main() {
                 break;
 
             case 2:
-                allCartItems(tableName);
+                creatCart(tableName, mainId);
+                allCartItems(tableName,discount,mainId,items);
+                if (items == 0)
+                {
+                    cout << "you dont have item in your cart " << endl << endl;
+                    break;
+                }
+                
                 cout << endl << "1. Payment the cart" << endl;
                 cout << "2. Delete a product from cart" << endl;
                 cout << "3. Go to Home" << endl;
@@ -390,6 +741,9 @@ int main() {
                 }
                 break;
             case 3:
+                updateProfile(mainId);
+                break;
+            case 4:
             condition = 'n';
             break;
             default:
