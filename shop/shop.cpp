@@ -11,13 +11,14 @@
 #include "login.h"
 #include <random>
 #include <string>
+#include "signUp.h"
 using namespace sql;
 using namespace std;
 using namespace httplib;
 using json = nlohmann::json;
 
 Connection *con;
-
+void getValet(int);
 void sumProduct(int &value)
 {
     value = 0;
@@ -284,7 +285,7 @@ bool verifyDiscountCode(const string& code, const string& accountType){
     }
      
 }
-void allCartItems(const string& tableName,string discount ,int mainId , int& items)
+void allCartItems(const string& tableName,string discount ,int mainId , int& items,int &allPrice)
 {
     char choise = 'y';
     string discountCode;
@@ -328,7 +329,6 @@ void allCartItems(const string& tableName,string discount ,int mainId , int& ite
     }
     if (items > 0 )
     {
-        /* code */
         while (true) {
             cout << "do you have discount code (y,n)? ";
             cin >> choise;
@@ -343,7 +343,7 @@ void allCartItems(const string& tableName,string discount ,int mainId , int& ite
         }
         if (choise == 'y')  
         {
-            finalPriceWithDiscountCode = finalPrice;
+            // finalPriceWithDiscountCode = finalPrice;
             while (true) {  
                 cout << "Enter the discount code : ";
                 cin >> discountCode;
@@ -361,18 +361,21 @@ void allCartItems(const string& tableName,string discount ,int mainId , int& ite
             // }
             delete rS;
             delete getAccount;
-            int FDiscount = finalPrice * 20 / 100;
-            finalPrice -= FDiscount;
+            // int FDiscount = finalPrice * 20 / 100;
+            // finalPrice -= FDiscount;
             if (verifyDiscountCode(discountCode, accountType)) {
                 int discount = finalPrice * 20 / 100;
                 finalPrice -= discount;
+                allPrice = finalPrice;
                 cout << "main final price : " << finalPrice + discount << endl;
                 cout << "final price with discount : " << finalPrice << endl;
             } else {
                 cout << "Invalid or expired discount code!" << endl;
             }
     
-        }   
+        }else{
+            allPrice = finalPrice;
+        }  
     }
     
     
@@ -434,12 +437,17 @@ void deleteOfCard(const string& tableName) {
         cerr << "error deleteOfCard: " << e.what() << endl;
     }
 }
-void clearCard(const string& tableName)
+void clearCart(const string& tableName,int& money)
 {
     string sql = "DELETE FROM " + tableName;
     Statement* stmt = con->createStatement();
     stmt->executeUpdate(sql);
     delete stmt;
+    // string payment = "UPDATE " + tableName + ""
+    PreparedStatement *payment = con->prepareStatement("UPDATE valet SET balance = balance - money WHERE user_id = ?");
+    payment->setInt(1,money);
+    payment->executeUpdate();
+    delete payment;
     cout << endl << "Payment was OK" << endl;
 }
 void updateProfile(int id)
@@ -562,7 +570,6 @@ void updateProfile(int id)
         bool flag = true;
         while (flag)
         {
-            /* code */
             while (true) {
                 cout << "enter new email : ";
                 cin >> email;
@@ -614,8 +621,172 @@ void updateProfile(int id)
         break;
     }
 }
+void showValet(int id)
+{
+    int balance = 0;
+    PreparedStatement *valets = con->prepareStatement("SELECT balance FROM valet WHERE user_id = ?");
+    valets->setInt(1,id);
+    ResultSet *balanceResult = valets->executeQuery();
+    if (balanceResult->next())
+    {
+        balance = balanceResult->getInt("balance");
+    }
+    cout << "-----------------------------------------" << endl;
+    cout << "| your valet balance : " << balance << setw(10) << "|" << endl;
+    cout << "-----------------------------------------" << endl;
+
+}
+void getValet(int id)
+{
+    int choise = 0 , money = 0;
+    cout << endl;
+    cout << "1. Amount to add" << endl;
+    cout << "2. Deduct wallet balance " << endl;
+    cout << "3. valet to valet" << endl;
+    cout << "4. exit" << endl;
+    while (true) {
+        cout << "Choose an option: ";
+        cin >> choise;
+        
+        if (!cin.fail()) {
+            break;
+        }
+        cout << "enter valid option" << endl;
+        cin.clear();
+        cin.ignore(1000, '\n');
+    }
+
+    switch (choise)
+    {
+    case 1:{
+    
+        while (true) {
+            cout << "Amount to add : " ;
+            cin >> money;
+
+            if (!cin.fail()) {
+                break;
+            }
+            cout << "enter valid value" << endl;
+            cin.clear();
+            cin.ignore(1000, '\n');
+        }
+        PreparedStatement* add = con->prepareStatement("UPDATE valet SET balance = balance + ? WHERE user_id = ?");
+        add->setInt(1,money);
+        add->setInt(2,id);
+        add->executeUpdate();
+        delete add;
+        showValet(id);
+        break;
+    }
+    case 2:{
+        int nowBalance = 0;
+        while (true) {
+            cout << "Deduct wallet balance : " ;
+            cin >> money;
+
+            if (!cin.fail()) {
+                break;
+            }
+            cout << "enter valid value" << endl;
+            cin.clear();
+            cin.ignore(1000, '\n');
+        }
+        PreparedStatement * quantity = con->prepareStatement("SELECT balance FROM valet WHERE user_id = ?");
+        quantity->setInt(1,id);
+        ResultSet *quantityResult = quantity->executeQuery();
+        if (quantityResult->next())
+        {
+            nowBalance = quantityResult->getInt("balance");
+        }
+        if (nowBalance < money)
+        {
+            cout << "You dont have enough balance in your wallet" << endl;
+            break;
+        }
+        
+        PreparedStatement * deduct = con->prepareStatement("UPDATE valet SET balance = balance - ? WHERE user_id = ?");
+        deduct->setInt(1,money);
+        deduct->setInt(2,id);
+        deduct->executeUpdate();
+        showValet(id);
+        delete deduct;
+        delete quantity;
+        delete quantityResult;
+        break;
+    }
+    case 3:{
+        string email;
+        int destinationId , balance = 0 ;
+        bool flag = true;
+        while (flag)
+        {
+            while (true) {
+                cout << "enter the email : " ;
+                cin >> email;
+    
+                if (!cin.fail()) {
+                    break;
+                }
+                cout << "enter valid email" << endl;
+                cin.clear();
+                cin.ignore(1000, '\n');
+            }
+            while (true) {
+                cout << "enter the id : " ;
+                cin >> id;
+    
+                if (!cin.fail()) {
+                    break;
+                }
+                cout << "enter valid id" << endl;
+                cin.clear();
+                cin.ignore(1000, '\n');
+            }
+            while (true) {
+                cout << "enter the money : " ;
+                cin >> money;
+    
+                if (!cin.fail()) {
+                    break;
+                }
+                cout << "enter valid money" << endl;
+                cin.clear();
+                cin.ignore(1000, '\n');
+            }
+            PreparedStatement * quantity = con->prepareStatement("SELECT balance FROM valet WHERE user_id = ?");
+            quantity->setInt(1,id);
+            ResultSet *quantityResult = quantity->executeQuery();
+            if (quantityResult->next())
+            {
+                balance = quantityResult->getInt("balance");
+            }
+            if (balance < money)
+            {
+                cout << "You dont have enough balance in your wallet" << endl;
+            }else{
+                PreparedStatement * add = con->prepareStatement("UPDATE valet SET balance = balance + ? WHERE user_id = ?");
+                add->setInt(1,money);
+                add->setInt(2,destinationId);
+                add->executeUpdate();
+                PreparedStatement * deduct = con->prepareStatement("UPDATE valet SET balance = balance - ? WHERE user_id = ?");
+                deduct->setInt(1,money);
+                deduct->setInt(2,id);
+                deduct->executeUpdate();
+                delete deduct;
+                delete add;
+            }
+        }
+        
+    }
+
+    default:
+        break;
+    }
+
+}
 int main() {
-    int sumOfProducts = 0, choice = -1;
+    int sumOfProducts = 0, choice = -1,money = 0;
     char condition = 'y';
     int subChoice = 0 , items = 0;
     string discount;
@@ -623,17 +794,18 @@ int main() {
     Driver* driver = get_driver_instance();
     con = driver->connect("tcp://127.0.0.1:3306", "root", "MyNewPassword123");
     con->setSchema("shop");
-
+    signUp(con);
     auto [mainId, mainUsername] = login(con);
     if (mainId == -1 || mainUsername.empty()) return 1;
     string TBID = to_string(mainId);
     string tableName = "user_" + TBID + "_table";
-
     do {
+        showValet(mainId);
         cout << endl << "1. All Products and Add to cart" << endl;
         cout << "2. All items in your cart" << endl;
         cout << "3. Edit profile" << endl;
-        cout << "4. Exit" << endl;
+        cout << "4. get Valet" << endl;
+        cout << "5. Exit" << endl;
         
         while (true) {
             cout << "Choose an option: ";
@@ -694,7 +866,7 @@ int main() {
 
             case 2:
                 creatCart(tableName, mainId);
-                allCartItems(tableName,discount,mainId,items);
+                allCartItems(tableName,discount,mainId,items,money);
                 if (items == 0)
                 {
                     cout << "you dont have item in your cart " << endl << endl;
@@ -718,7 +890,7 @@ int main() {
                 }
                 switch (subChoice) {
                     case 1:
-                    clearCard(tableName);
+                    clearCart(tableName,money);
                     cout << "Payment done." << endl;
                     if (1 == 1)
                     {
@@ -744,6 +916,9 @@ int main() {
                 updateProfile(mainId);
                 break;
             case 4:
+                getValet(mainId);
+                break;
+            case 5:
             condition = 'n';
             break;
             default:

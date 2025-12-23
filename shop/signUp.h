@@ -1,47 +1,78 @@
-#include "mainHeader.h"
 #include "findUser.h"
-void signUp(const Request& req, Response& res) {
-    extern Connection *con;
-    try {
-        json j = json::parse(req.body);
-        string username = j.value("username", "");
-        string password = j.value("password", "");
-        string passwordConfirm = j.value("password_confirm", "");
+#include <tuple>
+#include <termios.h>
+#include <unistd.h>
+void signUp(Connection* con) {
+    int id;
+    bool flag = true;
+    string username,password,confirm,email;
+    cout << "enter username : ";
+    cin >> username;
 
-        if(username.empty() || password.empty() ) {
-            res.status = 400;
-            res.set_content("{error : username or password are not valid}", "application/json");
-            return;
-        }
-        if (passwordConfirm != password)
-        {
-            res.status = 400;
-            res.set_content("{error :Password does not match the password confirmation }", "application/json");
-            return;
-        }
+    termios oldt, newt;
+    tcgetattr(STDIN_FILENO, &oldt);
+    newt = oldt;
+    newt.c_lflag &= ~ECHO;
+    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+
+    cout << "Password : ";
+    cin >> password;
+    cout << endl << "enter password cinfirm : ";
+    cin >> confirm;
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+    cout << endl;
+    while (true) {
+        cout << "enter new email : ";
+        cin >> email;
         
-        string hashed = BCrypt::generateHash(password);
-        auto [user,pass,role] = findUser(con,username);
-        if (username != user)
-        {
-            PreparedStatement* pstmt = con->prepareStatement("INSERT INTO users(username, password, role) VALUES(?, ?, ?)");
-            pstmt->setString(1, username);
-            pstmt->setString(2, hashed);
-            pstmt->setString(3, "user");
-            pstmt->executeUpdate();
-            delete pstmt;
-    
-            res.status = 201;
-            res.set_content("{message : user registered successfully}", "application/json");
+        if (!cin.fail()) {
+            break;
         }
-        else{
-            res.status = 401;
-            res.set_content("{message : user registered was not successfully}", "application/json");
+        cout << "enter email !" << endl;
+        cin.clear();
+        cin.ignore(1000, '\n');
+    }
+    if (email.length() >= 10) {
+        string gmailEndPoint = email.substr(email.length() - 10);
+        if (gmailEndPoint != "@gmail.com") {
+            cout << "email not valid !" << endl;
         }
+    }else if(email.length() < 10){
+        cout << "email not valid !" << endl;
+    }else{
+        flag = false;
+    }
+    cout << "Done" << endl;
+    auto [u, pass] = findUser(con, username);
+    if(password.empty() || u == username || username.empty()) {
+        cout << "Enter valid  username or paassword !" << endl;
+    }
+    else if (!u.empty())
+    {
+        cout << "this username used" << endl;
+        cout << "please chose other username" << endl;
+    }
+    else{
 
-    } catch(SQLException &e) {
-        cout << "SQL Error: " << e.what() << endl;
-        res.status = 500;
-        res.set_content("{error:DB error}", "application/json");
+        PreparedStatement *pstmt = con->prepareStatement("INSERT INTO users(name,email,password) VALUES(?,?,?)");
+        pstmt->setString(1, username);
+        pstmt->setString(2, email);
+        pstmt->setString(3, password);
+        pstmt->executeUpdate();
+        
+        PreparedStatement *selectId = con->prepareStatement("SELECT id FROM users WHERE name = ?");
+        selectId->setString(1, username);
+        ResultSet *rSet = selectId->executeQuery();
+        if (rSet->next())
+        {
+            id = rSet->getInt("id");
+        }
+        PreparedStatement *addValet = con->prepareStatement("INSERT INTO valet(user_id) VALUES(?)");
+        addValet->setInt(1, id);
+        addValet->executeUpdate();
+    
+        delete pstmt; 
+        delete addValet;
+        delete rSet;   
     }
 }
