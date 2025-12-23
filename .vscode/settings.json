@@ -48,5 +48,6 @@
         "typeinfo": "cpp",
         "any": "cpp",
         "optional": "cpp"
-    }
+    },
+    "cmake.sourceDirectory": "/home/rafiei/Documents/cpp/jwt-cpp"
 }
